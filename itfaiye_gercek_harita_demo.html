@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ankara İtfaiyesi · Gerçek Harita Demosu</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+:root{--bg:#f3f5f9;--pn:#fff;--ln:#d3dae6;--tx:#14202f;--mu:#5a6a7f;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--pn:#111b2d;--ln:#2a3951;--tx:#edf3fb;--mu:#9eacc2;color-scheme:dark}}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;overflow-x:hidden}
+header{display:flex;align-items:center;gap:8px;padding:12px 14px;background:#111827;color:#fff}header b{flex:1;font-size:15px}
+.pill{font-size:10px;font-weight:800;background:#451a03;color:#fde68a;border:1px solid #854d0e;border-radius:99px;padding:4px 8px}
+.tabs{display:flex;background:var(--pn);border-bottom:1px solid var(--ln)}.tabs button{flex:1;padding:13px 6px;border:0;border-bottom:3px solid transparent;background:none;color:var(--mu);font:inherit;font-weight:700}.tabs button.on{color:var(--tx);border-color:#ef4444}
+#map{height:52vh;min-height:280px;background:#dbeafe}#map.edit{outline:3px solid #f59e0b;outline-offset:-3px;cursor:crosshair}
+.card{background:var(--pn);border:1px solid var(--ln);border-radius:14px;padding:13px;margin:10px 12px}
+label{display:block;font-size:12px;font-weight:700;margin:8px 0 4px}input,select{width:100%;padding:11px;border:1px solid var(--ln);border-radius:10px;background:var(--bg);color:var(--tx);font:inherit}
+.veh{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px}.veh button,.item button{border:1px solid var(--ln);background:var(--bg);color:var(--tx);border-radius:99px;padding:7px 11px;font:inherit;font-size:12px}.veh button.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff}
+.go{width:100%;padding:13px;border:0;border-radius:12px;background:#b91c1c;color:#fff;font:inherit;font-weight:800;margin-top:4px}.go.blue{background:#1d4ed8;margin:0 0 4px}
+.box{border-left:4px solid;border-radius:8px;padding:10px 12px;margin:10px 12px;font-size:13px}.red{background:#fee2e2;border-color:#ef4444;color:#7f1d1d}.grn{background:#dcfce7;border-color:#22c55e;color:#14532d}.amb{background:#fef3c7;border-color:#f59e0b;color:#78350f}
+.box b{display:block;margin-bottom:3px}.box div{margin:3px 0}.item{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--ln);font-size:13px}.item span{flex:1}
+.help{font-size:11px;color:var(--mu);margin:8px 14px 18px}.hide{display:none!important}
+.pin{width:26px;height:26px;border-radius:50%;background:#f59e0b;border:3px solid #fff;color:#fff;font-weight:800;display:grid;place-items:center;box-shadow:0 1px 6px #0006}.pin.hot{background:#ef4444;animation:p 1.2s infinite}@keyframes p{50%{transform:scale(1.3)}}
+</style></head><body>
+<header><span style="font-size:22px">🚒</span><b>Ankara İtfaiyesi · Rota Uyarısı</b><span class="pill">DEMO</span></header>
+<div id="map"></div>
+<div class="tabs"><button id="t1" class="on">🗺️ Rota</button><button id="t2">➕ Dar sokak ekle</button></div>
+<section id="p1">
+ <div class="card">
+  <label for="from">Başlangıç adresi</label><input id="from" value="Kızılay, Ankara" autocomplete="off">
+  <label for="to">Olay yeri adresi</label><input id="to" value="Ulus, Ankara" autocomplete="off">
+  <label>Araç</label><div class="veh" id="veh"></div>
+  <button class="go" id="go">Rota göster</button>
+ </div>
+ <div id="result"></div>
+</section>
+<section id="p2" class="hide">
+ <div class="card">
+  <label for="ty">Kısıt türü</label>
+  <select id="ty"><option value="dar">Dar sokak (geçiş ≈ 2.7 m)</option><option value="alcak">Alçak geçit (≈ 3.0 m)</option><option value="yol">Yol çalışması / kapalı yol</option></select>
+  <div class="box amb" style="margin:10px 0 0">Haritada ilgili <b style="display:inline">yere dokunun</b>; kısıt eklenir ve rota yeniden hesaplanır.</div>
+  <div id="msg2" class="help" style="margin:8px 0 0"></div>
+ </div>
+ <div class="card"><b>Haritadaki kısıtlar</b><div id="list"></div></div>
+</section>
+<p class="help">Demo: adres araması (Nominatim) ve rota (OSRM) herkese açık ücretsiz servislerdir, internet gerekir. Kısıt noktaları örnektir; gerçek sürümde saha teyidi ve resmî veri bağlanır. Harita © OpenStreetMap katkıcıları.</p>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+if(typeof L==='undefined'){$('result').innerHTML='<div class="box red"><b>Harita yüklenemedi</b>İnternet bağlantısını kontrol edin.</div>';return}
+const KEY='ankara-itfaiye-gercek-demo-v1',VEH=[{n:'Arazöz',w:2.5,h:3.4},{n:'Merdivenli',w:2.5,h:4.0},{n:'Kurtarma',w:2.3,h:3.2}],RT={dar:{t:'w',v:2.7},alcak:{t:'h',v:3.0},yol:{t:'x',v:0}};
+const map=L.map('map').setView([39.9255,32.8663],12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
+const rl=L.layerGroup().addTo(map),ml=L.layerGroup().addTo(map);
+let st={r:[],seeded:false};try{st=Object.assign(st,JSON.parse(localStorage.getItem(KEY)))}catch(e){}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(st))}catch(e){}};
+let veh=VEH[0],tab=1,last=null,cur=null;
+const blocked=r=>r.t==='x'||(r.t==='w'&&veh.w+.3>r.v)||(r.t==='h'&&veh.h+.2>r.v);
+const kind=r=>r.t==='x'?'Yol çalışması / kapalı':r.t==='w'?'Dar sokak ≈ '+r.v+' m':'Alçak geçit ≈ '+r.v+' m';
+const why=r=>kind(r)+(r.t==='w'?` (araç ${veh.w} m geniş)`:r.t==='h'?` (araç ${veh.h} m yüksek)`:'');
+const sym=r=>r.t==='w'?'↔':r.t==='h'?'⌃':'✕';
+function pd(p,a,b){const k=Math.cos(p[0]*Math.PI/180),x=q=>[(q[1]-p[1])*111320*k,(q[0]-p[0])*110540],A=x(a),B=x(b),dx=B[0]-A[0],dy=B[1]-A[1],l=dx*dx+dy*dy,t=l?Math.max(0,Math.min(1,-(A[0]*dx+A[1]*dy)/l)):0;return Math.hypot(A[0]+t*dx,A[1]+t*dy)}
+function minDist(p,c){let m=1e9;for(let i=1;i<c.length;i++)m=Math.min(m,pd(p,[c[i-1][1],c[i-1][0]],[c[i][1],c[i][0]]));return m}
+const hits=rt=>st.r.filter(r=>blocked(r)&&minDist([r.lat,r.lng],rt.geometry.coordinates)<=30);
+const gc={};
+async function geo(q){q=q.trim();if(!q)throw new Error('Adres boş.');if(gc[q])return gc[q];
+const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tr&viewbox=32.4,40.2,33.3,39.6&q='+encodeURIComponent(/ankara/i.test(q)?q:q+', Ankara'));
+const j=await r.json();if(!j.length)throw new Error('Adres bulunamadı: '+q);return gc[q]={lat:+j[0].lat,lng:+j[0].lon}}
+async function osrm(pts,alt){const r=await fetch(`https://router.project-osrm.org/route/v1/driving/${pts.map(p=>p.lng+','+p.lat).join(';')}?overview=full&geometries=geojson${alt?'&alternatives=true':''}`);
+const d=await r.json();if(d.code!=='Ok'||!d.routes?.length)throw new Error('Rota bulunamadı.');return d.routes}
+async function detour(a,b,bad){const p=bad[0],k=111320*Math.cos(p.lat*Math.PI/180);let best=null;
+for(const m of [250,500]){const v=[[1,0],[-1,0],[0,1],[0,-1]].map(([x,y])=>({lat:p.lat+y*m/110540,lng:p.lng+x*m/k}));
+const rs=await Promise.allSettled(v.map(w=>osrm([a,w,b],false)));
+rs.forEach(x=>{if(x.status==='fulfilled'){const rt=x.value[0];if(!hits(rt).length&&(!best||rt.distance<best.distance))best=rt}});if(best)return best}return null}
+const km=m=>(m/1000).toFixed(1)+' km',mn=s=>Math.round(s/60)+' dk';
+function markers(){ml.clearLayers();const hot=last?last.bad:[];st.r.forEach(r=>{L.marker([r.lat,r.lng],{icon:L.divIcon({className:'',html:`<div class="pin ${hot.includes(r)?'hot':''}">${sym(r)}</div>`,iconSize:[26,26],iconAnchor:[13,13]})}).bindPopup(`<b>${kind(r)}</b>${r.demo?'<br><small>örnek nokta</small>':''}`).addTo(ml)});
+$('list').innerHTML=st.r.map((r,i)=>`<div class="item"><span><b>${kind(r)}</b>${r.demo?' <small>(örnek)</small>':''}<br><small>${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}</small></span><button data-i="${i}">Sil</button></div>`).join('')||'<p class="help" style="margin:8px 0 0">Henüz kısıt yok.</p>'}
+async function show(){const R=$('result'),b=$('go');b.disabled=true;R.innerHTML='<div class="box amb">Rota hesaplanıyor…</div>';
+try{const a=await geo($('from').value),d=await geo($('to').value),rs=await osrm([a,d],true);let A=rs[0],bad=hits(A);
+if(!bad.length&&!st.seeded&&!st.r.length){const c=A.geometry.coordinates[Math.floor(A.geometry.coordinates.length*.45)];st.r.push({lat:c[1],lng:c[0],...RT.alcak,demo:true});st.seeded=true;save();bad=hits(A)}
+let B=null;if(bad.length){B=rs.slice(1).find(r=>!hits(r).length)||await detour(a,d,bad)}
+last={A,B,bad,a,d};rl.clearLayers();
+const ln=(g,o)=>L.geoJSON(g,{style:o}).addTo(rl);
+ln(A.geometry,{color:bad.length?'#ef4444':'#22c55e',weight:5,dashArray:bad.length?'9 7':null,opacity:.95});
+if(B){ln(B.geometry,{color:'#fff',weight:10,opacity:.7});ln(B.geometry,{color:'#22c55e',weight:6})}
+L.circleMarker([a.lat,a.lng],{radius:8,color:'#fff',weight:2,fillColor:'#2563eb',fillOpacity:1}).bindTooltip('Başlangıç').addTo(rl);
+L.circleMarker([d.lat,d.lng],{radius:8,color:'#fff',weight:2,fillColor:'#f97316',fillOpacity:1}).bindTooltip('Olay yeri').addTo(rl);
+map.fitBounds(L.geoJSON(A.geometry).getBounds(),{padding:[30,30]});markers();
+let h=`<div class="box ${bad.length?'amb':'grn'}"><b>${km(A.distance)} · ${mn(A.duration)} — normal rota</b>${bad.length?'Navigasyonun önereceği en kısa yol budur.':'Kayıtlı kısıtlara göre araca uygun görünüyor.'}</div>`;
+if(bad.length){h+=`<div class="box red"><b>⚠ ${bad.length} sorunlu nokta</b>${bad.map(r=>`<div>• ${why(r)}</div>`).join('')}</div>`;
+h+=B?`<div class="box grn"><b>✅ Alternatif rota: ${km(B.distance)} · ${mn(B.duration)}</b>Sorunlu noktaları atlıyor (+${((B.distance-A.distance)/1000).toFixed(1)} km). Haritada yeşil çizgi.</div>`:`<div class="box red"><b>Uygun alternatif bulunamadı</b>Saha teyidi veya farklı araç gerekir.</div>`}
+h+='<div class="card"><button class="go blue" id="nav">🧭 Google Haritalar’da navigasyon</button><div class="help" style="margin:4px 0 0">Canlı trafik ve kaza bildirimlerini Google kendi uygulamasında gösterir; araç ölçülerini bilmez.</div></div>';R.innerHTML=h;$('nav').onclick=nav}
+catch(e){R.innerHTML=`<div class="box red"><b>Hata</b>${e.message}</div>`}finally{b.disabled=false}}
+function nav(){if(!last)return;const t=last.B||last.A;if(last.bad.length&&!last.B&&!confirm('Rotada araca uymayan nokta var. Google bunu bilmez. Yine de açılsın mı?'))return;
+const c=t.geometry.coordinates,w=[1,2,3].map(i=>{const p=c[Math.floor(c.length*i/4)];return p[1].toFixed(5)+','+p[0].toFixed(5)});
+window.open(`https://www.google.com/maps/dir/?api=1&origin=${last.a.lat},${last.a.lng}&destination=${last.d.lat},${last.d.lng}&travelmode=driving&dir_action=navigate&waypoints=${w.join('%7C')}`,'_blank','noopener')}
+map.on('click',e=>{if(tab!==2)return;st.r.push({lat:e.latlng.lat,lng:e.latlng.lng,...RT[$('ty').value]});save();$('msg2').textContent='✔ Kısıt eklendi.';last?show():markers()});
+$('list').onclick=e=>{const b=e.target.closest('button');if(!b)return;st.r.splice(+b.dataset.i,1);save();last?show():markers()};
+const setTab=n=>{tab=n;$('t1').classList.toggle('on',n===1);$('t2').classList.toggle('on',n===2);$('p1').classList.toggle('hide',n!==1);$('p2').classList.toggle('hide',n!==2);$('map').classList.toggle('edit',n===2)};
+$('t1').onclick=()=>setTab(1);$('t2').onclick=()=>setTab(2);$('go').onclick=show;
+const vb=()=>{$('veh').innerHTML=VEH.map((v,i)=>`<button class="${v===veh?'on':''}" data-i="${i}">${v.n} · ${v.w}×${v.h} m</button>`).join('')};
+$('veh').onclick=e=>{const b=e.target.closest('button');if(b){veh=VEH[+b.dataset.i];vb();last?show():markers()}};
+vb();markers();
+})();
+</script></body></html>
